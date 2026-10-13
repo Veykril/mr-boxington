@@ -159,21 +159,20 @@ pub(crate) fn probe() -> Probe {
     }
 }
 
-fn probe_inner() -> std::io::Result<bool> {
+fn run_archive_tool(
+    programs: [&OsStr; 2],
+    arguments: &[&OsStr],
+    directory: &std::path::Path,
+    zero: bool,
+) -> std::io::Result<()> {
+    use std::io;
     use std::process::{Command, Stdio};
 
-    let directory = tempfile::Builder::new().prefix("mbx-ar-probe-").tempdir()?;
-    let member = directory.path().join("member");
-    // Any file serves. `ranlib` warns that it is not an object and still
-    // rewrites the header this probe is reading, so the archive stays valid
-    // for the comparison without needing a compiler on the host.
-    std::fs::write(&member, b"mbx archive probe")?;
-
-    let run = |program: &str, arguments: &[&std::ffi::OsStr], zero: bool| -> std::io::Result<()> {
+    for program in programs {
         let mut command = Command::new(program);
         command
             .args(arguments)
-            .current_dir(directory.path())
+            .current_dir(directory)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if zero {
@@ -181,24 +180,57 @@ fn probe_inner() -> std::io::Result<bool> {
         } else {
             command.env_remove(ZERO_AR_DATE);
         }
-        let status = command.status()?;
+        let status = match command.status() {
+            Ok(status) => status,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(io::Error::new(
+                    error.kind(),
+                    format!("could not run {}: {error}", program.to_string_lossy()),
+                ));
+            }
+        };
         if status.success() {
             return Ok(());
         }
-        Err(std::io::Error::other(format!(
-            "{program} exited with {status}"
-        )))
-    };
+        return Err(io::Error::other(format!(
+            "{} exited with {status}",
+            program.to_string_lossy()
+        )));
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!(
+            "neither {} nor {} was found",
+            programs[0].to_string_lossy(),
+            programs[1].to_string_lossy()
+        ),
+    ))
+}
+
+fn probe_inner() -> std::io::Result<bool> {
+    let directory = tempfile::Builder::new().prefix("mbx-ar-probe-").tempdir()?;
+    let member = directory.path().join("member");
+    // Any file serves. `ranlib` warns that it is not an object and still
+    // rewrites the header this probe is reading, so the archive stays valid
+    // for the comparison without needing a compiler on the host.
+    std::fs::write(&member, b"mbx archive probe")?;
 
     let mut digests = Vec::new();
     for (name, zero) in [("zeroed.a", true), ("stamped.a", false)] {
         let archive = directory.path().join(name);
-        run(
-            "ar",
+        run_archive_tool(
+            ["ar".as_ref(), "llvm-ar".as_ref()],
             &["rc".as_ref(), archive.as_os_str(), member.as_os_str()],
+            directory.path(),
             zero,
         )?;
-        run("ranlib", &[archive.as_os_str()], zero)?;
+        run_archive_tool(
+            ["ranlib".as_ref(), "llvm-ranlib".as_ref()],
+            &[archive.as_os_str()],
+            directory.path(),
+            zero,
+        )?;
         digests.push(std::fs::read(&archive)?);
     }
     Ok(digests[0] != digests[1])
@@ -207,6 +239,40 @@ fn probe_inner() -> std::io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_archive_tool_uses_the_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing-ar");
+        let executable = std::env::current_exe().unwrap();
+        run_archive_tool(
+            [missing.as_os_str(), executable.as_os_str()],
+            &["--list".as_ref()],
+            directory.path(),
+            false,
+        )
+        .expect("a missing primary executable should use the working fallback");
+    }
+
+    #[test]
+    fn failing_archive_tool_is_not_hidden_by_a_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let missing = directory.path().join("missing-llvm-ar");
+        let error = run_archive_tool(
+            [executable.as_os_str(), missing.as_os_str()],
+            &["--mbx-invalid-probe-option".as_ref()],
+            directory.path(),
+            false,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("exited with"));
+        assert!(
+            error
+                .to_string()
+                .contains(executable.to_string_lossy().as_ref())
+        );
+    }
 
     #[test]
     fn an_explicit_setting_from_the_user_is_never_overridden() {

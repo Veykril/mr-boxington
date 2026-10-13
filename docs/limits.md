@@ -275,6 +275,12 @@ is off. Under the default, a macOS release or bench build with CMake-built
 native dependencies can still miss downstream of those archives;
 `mbx settings set ar_determinism always` covers it. The `archives` check in
 `mbx doctor` reports whether this host's archive tools stamp a timestamp.
+It tries `ar` and `ranlib` on `PATH`, falling back independently to `llvm-ar`
+and `llvm-ranlib` when the corresponding unprefixed command is missing,
+including on Windows. A command that runs but fails is reported rather than
+replaced by a fallback. This probes the host tools, not every dependency's
+configured or cross-compilation archiver; it does not control build-script
+tool selection.
 
 Linked programs, tests, and proc macros that name a native library still
 bypass; see [Linker overrides and link arguments](#linker-overrides-and-link-arguments).

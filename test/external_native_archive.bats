@@ -15,9 +15,10 @@ setup() {
   export EXTERNAL_NATIVE="$BATS_TEST_TMPDIR/external-native"
   mkdir -p "$PROJECT/src" "$EXTERNAL_NATIVE"
 
-  if ! command -v cc >/dev/null 2>&1 || ! command -v ar >/dev/null 2>&1; then
-    skip "a C compiler and archiver are required"
-  fi
+  local compiler archiver
+  compiler="$(_fixture_tool cc clang)" || skip "a C compiler (cc or clang) is required"
+  archiver="$(_fixture_tool ar llvm-ar)" || skip "an archiver (ar or llvm-ar) is required"
+  export FIXTURE_COMPILER="$compiler" FIXTURE_ARCHIVER="$archiver"
 
   cat >"$PROJECT/Cargo.toml" <<'EOF'
 [package]
@@ -43,9 +44,9 @@ EOF
 
 write_archive() {
   printf 'int answer(void) { return %s; }\n' "$1" >"$EXTERNAL_NATIVE/fixture.c"
-  cc -c "$EXTERNAL_NATIVE/fixture.c" -o "$EXTERNAL_NATIVE/fixture.o"
+  "$FIXTURE_COMPILER" -c "$EXTERNAL_NATIVE/fixture.c" -o "$EXTERNAL_NATIVE/fixture.o"
   rm -f "$EXTERNAL_NATIVE/libfixture.a"
-  ar crs "$EXTERNAL_NATIVE/libfixture.a" "$EXTERNAL_NATIVE/fixture.o"
+  "$FIXTURE_ARCHIVER" crs "$EXTERNAL_NATIVE/libfixture.a" "$EXTERNAL_NATIVE/fixture.o"
 }
 
 build_into() {

@@ -106,17 +106,19 @@ build_fresh() {
 }
 
 @test "an archive built twice from unchanged objects keeps its digest" {
-  if ! command -v ar >/dev/null 2>&1 || ! command -v ranlib >/dev/null 2>&1; then
-    skip "no archiver is available"
-  fi
+  local compiler archiver ranlib
+  compiler="$(_fixture_tool cc clang)" || skip "a C compiler (cc or clang) is required"
+  archiver="$(_fixture_tool ar llvm-ar)" || skip "an archiver (ar or llvm-ar) is required"
+  ranlib="$(_fixture_tool ranlib llvm-ranlib)" || skip "ranlib or llvm-ranlib is required"
+  export FIXTURE_COMPILER="$compiler" FIXTURE_ARCHIVER="$archiver" FIXTURE_RANLIB="$ranlib"
   printf 'int probe(void) { return 0; }\n' >"$BATS_TEST_TMPDIR/probe.c"
-  if ! cc -c -o "$BATS_TEST_TMPDIR/probe.o" "$BATS_TEST_TMPDIR/probe.c" 2>/dev/null; then
-    skip "no C compiler is available"
+  if ! "$compiler" -c -o "$BATS_TEST_TMPDIR/probe.o" "$BATS_TEST_TMPDIR/probe.c" 2>/dev/null; then
+    skip "no working C compiler is available"
   fi
   # Only meaningful where the archiver stamps a timestamp at all; a toolchain
   # that is already deterministic proves nothing either way.
-  ( cd "$BATS_TEST_TMPDIR" && ar rc stamped.a probe.o && ranlib stamped.a )
-  ( cd "$BATS_TEST_TMPDIR" && ar rc zeroed.a probe.o && ZERO_AR_DATE=1 ranlib zeroed.a )
+  ( cd "$BATS_TEST_TMPDIR" && "$archiver" rc stamped.a probe.o && "$ranlib" stamped.a )
+  ( cd "$BATS_TEST_TMPDIR" && "$archiver" rc zeroed.a probe.o && ZERO_AR_DATE=1 "$ranlib" zeroed.a )
   if cmp -s "$BATS_TEST_TMPDIR/stamped.a" "$BATS_TEST_TMPDIR/zeroed.a"; then
     skip "this archiver does not stamp a timestamp"
   fi
@@ -129,14 +131,14 @@ fn main() {
     let out = std::env::var("OUT_DIR").unwrap();
     let object = format!("{out}/probe.o");
     let archive = format!("{out}/libprobe.a");
-    assert!(std::process::Command::new("cc")
+    assert!(std::process::Command::new(std::env::var("FIXTURE_COMPILER").unwrap())
         .args(["-c", "-o", &object, "probe.c"])
         .status().unwrap().success());
     let _ = std::fs::remove_file(&archive);
-    assert!(std::process::Command::new("ar")
+    assert!(std::process::Command::new(std::env::var("FIXTURE_ARCHIVER").unwrap())
         .args(["rc", &archive, &object])
         .status().unwrap().success());
-    assert!(std::process::Command::new("ranlib")
+    assert!(std::process::Command::new(std::env::var("FIXTURE_RANLIB").unwrap())
         .arg(&archive)
         .status().unwrap().success());
     println!("cargo:warning=archive={archive}");

@@ -44,6 +44,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -68,6 +69,14 @@ def digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def archive_tool() -> str:
+    """Find an archiver, preferring the unprefixed tool."""
+    tool = shutil.which("ar") or shutil.which("llvm-ar")
+    if tool is None:
+        raise RuntimeError("archive extraction requires ar or llvm-ar on PATH")
+    return str(Path(tool).resolve())
 
 
 # An absolute path as an object file carries it: the build directory recorded
@@ -96,7 +105,7 @@ def members(path: Path) -> dict[str, tuple[str, str]] | None:
     """
     with tempfile.TemporaryDirectory() as scratch:
         extracted = subprocess.run(
-            ["ar", "x", str(path.resolve())],
+            [archive_tool(), "x", str(path.resolve())],
             cwd=scratch,
             capture_output=True,
         )
@@ -118,7 +127,7 @@ def embedded_paths(path: Path) -> set[bytes]:
     """Absolute paths an archive's members carry, as debug information."""
     with tempfile.TemporaryDirectory() as scratch:
         extracted = subprocess.run(
-            ["ar", "x", str(path.resolve())], cwd=scratch, capture_output=True
+            [archive_tool(), "x", str(path.resolve())], cwd=scratch, capture_output=True
         )
         if extracted.returncode != 0:
             return set()
@@ -255,7 +264,11 @@ def main() -> int:
             groups[key].append(path)
 
     comparable = {key: paths for key, paths in groups.items() if len(paths) > 1}
-    findings = {key: classify(paths) for key, paths in sorted(comparable.items())}
+    try:
+        findings = {key: classify(paths) for key, paths in sorted(comparable.items())}
+    except RuntimeError as error:
+        print(error, file=sys.stderr)
+        return 2
     unstable = {key: r for key, r in findings.items() if not r["stable"]}
 
     print(f"target root: {root}")

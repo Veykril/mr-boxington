@@ -52,3 +52,11 @@ _common_setup() {
   mkdir -p "$HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
   cd "$BATS_TEST_TMPDIR" || return 1
 }
+
+_fixture_tool() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  else
+    command -v "$2"
+  fi
+}

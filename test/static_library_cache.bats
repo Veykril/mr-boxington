@@ -19,12 +19,13 @@ setup() {
   # never published; these tests are about the shared key.
   export MBX_LEARNED_INCREMENTAL=0
 
+  local compiler archiver
+  compiler="$(_fixture_tool cc clang)" || skip "a C compiler (cc or clang) is required"
+  archiver="$(_fixture_tool ar llvm-ar)" || skip "an archiver (ar or llvm-ar) is required"
+  export CC="$compiler" FIXTURE_ARCHIVER="$archiver"
   printf 'int probe(void) { return 0; }\n' >"$BATS_TEST_TMPDIR/probe.c"
-  if ! cc -c -o "$BATS_TEST_TMPDIR/probe.o" "$BATS_TEST_TMPDIR/probe.c" 2>/dev/null; then
-    skip "no C compiler is available"
-  fi
-  if ! command -v ar >/dev/null 2>&1; then
-    skip "no archiver is available"
+  if ! "$compiler" -c -o "$BATS_TEST_TMPDIR/probe.o" "$BATS_TEST_TMPDIR/probe.c" 2>/dev/null; then
+    skip "no working C compiler is available"
   fi
 
   export PROJECT="$BATS_TEST_TMPDIR/project"
@@ -64,12 +65,12 @@ fn main() {
     assert!(status.success());
     let archive = out.join("libhello.a");
     let _ = std::fs::remove_file(&archive);
-    let status = Command::new("ar")
+    let status = Command::new(env::var("FIXTURE_ARCHIVER").unwrap())
         .arg("crs")
         .arg(&archive)
         .arg(&object)
         .status()
-        .expect("ar should run");
+        .expect("the archiver should run");
     assert!(status.success());
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=hello");

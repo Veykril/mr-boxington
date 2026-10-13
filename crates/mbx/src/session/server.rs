@@ -3,7 +3,9 @@ use eyre::Context;
 use eyre::Result;
 use log::debug;
 use mbx_cache_core::CacheAgent;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
